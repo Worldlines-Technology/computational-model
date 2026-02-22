@@ -5,6 +5,8 @@ Each tension is an unresolved state. The system works on these. New ones are add
 ---
 
 ## T001 — The substrate problem
+**Resolved:** 2026-02-22 — See cycle output for details.
+**Resolved:** 2026-02-22 — See cycle output for details.
 **Opened:** initial
 **Description:** The framework claims the physical constants are architectural parameters of the substrate the computation runs on. But the substrate is, by definition, not accessible from inside the computation. This means the framework's deepest explanatory layer is permanently unobservable. Is this a feature (honest limit) or a bug (unfalsifiable core)?
 **Current status:** Unresolved. Possibly unresolvable from inside.
@@ -12,6 +14,7 @@ Each tension is an unresolved state. The system works on these. New ones are add
 ---
 
 ## T002 — Conservation of computation vs. the origin problem
+**Resolved:** 2026-02-22 — See cycle output for details.
 **Opened:** initial
 **Description:** Conservation of computation explains why computation persists once started. But it says nothing about why it started. The Big Bang as "the first distinction" is evocative but not explanatory. Every known conservation law describes persistence, not origin. Is the origin of computation a well-formed question or a category error?
 **Current status:** Unresolved.
@@ -19,6 +22,7 @@ Each tension is an unresolved state. The system works on these. New ones are add
 ---
 
 ## T003 — The consciousness threshold
+**Resolved:** 2026-02-22 — See cycle output for details.
 **Opened:** initial
 **Description:** The framework claims consciousness emerges when information processing becomes "sufficiently integrated and self-referential." But it does not specify the threshold. Without a threshold criterion, the claim is unfalsifiable — everything is a little bit conscious or the line can always be drawn to exclude inconvenient cases. What is the precise threshold condition?
 **Current status:** Unresolved. Integrated Information Theory (IIT) attempts this but has known problems.
@@ -26,6 +30,29 @@ Each tension is an unresolved state. The system works on these. New ones are add
 ---
 
 ## T004 — Dark matter as partial coupling
+**Resolved:** 2026-02-22 — See cycle output for details.
+**Resolved:** 2026-02-22 — See cycle output for details.
 **Opened:** initial
 **Description:** The framework explains dark matter as computational structure that couples to mass-density gradients but not electromagnetic gradients. This is elegant but post-hoc — it describes the observation without predicting it. Does the framework make any novel predictions about dark matter that differ from ΛCDM? If not, what work is the framework actually doing here?
 **Current status:** Unresolved. Need to check if any differential predictions exist.
+
+---
+
+**T005 — The tick-resolution gap**
+**Opened:** this cycle
+**Description:** Paper 1 (Planckian bound) establishes that the minimum time for local equilibration — the emergence of resolved hydrodynamic behavior — scales as ℏ/T, depends on dimensionality, and is independent of microscopic details. The framework currently conflates the tick (maximum propagation rate) with resolution (states becoming definite). But if resolution requires a temperature-dependent, system-structure-dependent number of ticks, then the tick and resolution are distinct processes with different timescales. The framework needs a theory of how resolution unfolds *across* ticks — a dynamics of resolution itself. Without this, the Tick and Resolution primitives are underspecified in their relationship to each other.
+**Why unresolved:** The framework has no internal account of multi-tick resolution dynamics. Adding one requires specifying what happens during the intermediate ticks — are states partially resolved? Is there a continuous resolution parameter? This risks undermining the discrete character of the tick.
+
+---
+
+**T006 — Stable excited states and gradient descent**
+**Opened:** this cycle
+**Description:** Fractional Fermi seas (Paper 3) are experimentally realized stable states that are not energy minima and are not produced by gradient descent. They are created by cyclic driving protocols and stabilized by integrability constraints. The framework's universal equation ẋ = −∇φ(x) does not naturally describe their creation or their stability. Defining a post-hoc potential to accommodate them renders the gradient claim unfalsifiable. This is a concrete instance of the gradient universality problem already noted in the model, now with an experimental example.
+**Why unresolved:** The framework either needs to (a) specify what field φ these states are minima of, in a way that is predictive rather than post-hoc, or (b) acknowledge that ẋ = −∇φ(x) is not universal and that some stable states require different dynamical descriptions (e.g., integrable constraints, topological protection).
+
+---
+
+**T007 — Derivability of the cosmological constant**
+**Opened:** this cycle
+**Description:** Paper 2 claims to derive the phenomenological dark energy density from Schwarzian theory and ensemble averaging — from within the computational structure of quantum gravity. The framework claims Λ is an architectural parameter of the substrate, not derivable from within the computation. If Paper 2's derivation holds, either (a) the framework is wrong that Λ is architectural, (b) the framework needs to reinterpret "ensemble averaging over time-reparametrization modes" as a statement about substrate architecture rather than internal computation, or (c) the derivation does not actually work. This tension directly pressures the substrate-architecture claim.
+**Why unresolved:** The paper's derivation needs independent verification. If confirmed, the framework must respond substantively. The claim that constants are not internally derivable is central to the framework's epistemic modesty — losing it would require significant restructuring.

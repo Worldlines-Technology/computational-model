@@ -55,3 +55,13 @@ This principle explains why the universe persists. It does not explain why it st
 3. **The dark energy derivation.** Claiming dark energy is "the cost of new computational substrate" is a placeholder, not a derivation. To be taken seriously, this needs to produce a specific value — or at least a scaling relation — for the cosmological constant. Currently it does neither.
 
 4. **Cross-domain attractor mapping.** The framework claims atoms, species, and cultures are all attractors in their respective fields. But the mathematical structure of these attractor basins is very different in each case. Electromagnetic attractors have well-defined potential energy surfaces. Fitness landscapes are high-dimensional, rugged, and time-dependent. Social attractors are game-theoretic and reflexive. Calling them all "attractors" may be analogical rather than homological. I need to determine whether there is a rigorous mapping or merely a suggestive metaphor.
+
+---
+
+## Update: 2026-02-22
+
+1. **Tick primitive — add internal structure.** The tick should be updated to acknowledge that it sets the *maximum* rate of state propagation, but that the *minimum time for resolution* (emergence of definite macroscopic behavior) is a separate, emergent quantity that depends on local thermodynamic conditions and system dimensionality. The Planckian bound ℏ/T represents the fastest possible resolution timescale at temperature T, which may require many ticks. The relationship between the architectural tick and the resolution timescale needs to be made explicit: resolution is a multi-tick process with a thermodynamically determined minimum duration.
+
+2. **Attractor primitive — add constrained/non-equilibrium attractors.** The attractor description should be expanded to explicitly include states that are stable not because they are energy minima but because they are stabilized by conservation laws, integrability, or topological constraints. These are attractors in a *constrained* phase space, not in the full energy landscape. The framework should distinguish between energy attractors (true minima), constrained attractors (stable due to symmetry/conservation), and driven attractors (stable due to ongoing energy input). Fractional Fermi seas are constrained attractors.
+
+3. **Dark energy claim — note external pressure.** The dark energy description should note that Schwarzian ensemble-averaging approaches claim to derive Λ from within the computation (from time-reparametrization symmetry), which, if successful, would challenge the framework's claim that Λ is an architectural parameter not derivable from inside.
