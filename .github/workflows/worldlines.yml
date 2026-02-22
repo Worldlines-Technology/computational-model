@@ -30,6 +30,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python agent/run.py
 
+      # Commits all cycle outputs including:
+      #   cycles/YYYY-MM-DD.md    — interpretive cycle output
+      #   state/model.md          — updated living model
+      #   tensions/open.md        — updated tensions
+      #   scoring/scores.jsonl    — appended paper scores
+      #   scoring/visualize.html  — static visualization (committed once, rarely changes)
       - name: Commit outputs
         run: |
           git config user.name "worldlines-agent"

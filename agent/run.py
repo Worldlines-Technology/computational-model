@@ -5,8 +5,12 @@ Worldlines Agent — Autonomous research cycle.
 Fetches recent physics papers from ArXiv, selects those most likely to strain
 the Worldlines computational framework, interprets them through that framework
 via Claude, and updates the living model and tension tracker.
+
+After interpretation, scores each paper on strain and validation dimensions
+using a fast scoring model, and appends results to scoring/scores.jsonl.
 """
 
+import json
 import os
 import re
 import sys
@@ -24,12 +28,17 @@ ARXIV_API = "http://export.arxiv.org/api/query"
 ARXIV_CATEGORIES = ["hep-th", "gr-qc", "quant-ph", "cond-mat.stat-mech"]
 PAPERS_PER_CATEGORY = 5
 PAPERS_TO_SELECT = 3
+STRAIN_PAPERS = 2
+VALIDATION_PAPERS = 1
 
 STATE_PATH = "state/model.md"
 TENSIONS_PATH = "tensions/open.md"
 CYCLES_DIR = "cycles"
+SCORES_DIR = "scoring"
+SCORES_PATH = "scoring/scores.jsonl"
 
 CLAUDE_MODEL = "claude-opus-4-6"
+SCORING_MODEL = "claude-haiku-4-5-20251001"
 
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
@@ -195,12 +204,20 @@ def fetch_arxiv_papers():
 
 # ---------------------------------------------------------------------------
 # Step 2: Select papers for this cycle (via Claude)
+#   2 for strain, 1 for potential validation
 # ---------------------------------------------------------------------------
 
 
 def select_papers(papers, client):
-    """Use Claude to pick the 3 papers most likely to strain the framework."""
+    """Select 2 papers for strain and 1 for validation. Returns (list, rationale).
+
+    Each paper in the returned list has a 'selection_type' key: 'strain' or 'validation'.
+    """
     if len(papers) <= PAPERS_TO_SELECT:
+        for p in papers:
+            p["selection_type"] = "strain"
+        if papers:
+            papers[-1]["selection_type"] = "validation"
         rationale = "Fewer papers available than selection target; using all."
         return papers, rationale
 
@@ -213,10 +230,14 @@ def select_papers(papers, client):
 
     selection_prompt = f"""\
 Below are {len(papers)} recent physics papers from ArXiv. Your task: select \
-exactly {PAPERS_TO_SELECT} that are MOST LIKELY to produce tension with the \
-Worldlines computational framework described below. Choose papers whose \
-findings seem hardest to interpret through the framework, or that strain it \
-most — not the ones that seem most compatible.
+exactly 3 papers for the Worldlines interpretive cycle.
+
+Select EXACTLY:
+- 2 papers for STRAIN — hardest to interpret through the framework, most \
+likely to produce tension
+- 1 paper for VALIDATION — most likely to represent a case where the \
+framework has genuine predictive purchase (not just consistency, but where \
+the framework's lens highlights something that other approaches miss)
 
 THE FRAMEWORK (summary):
 {FRAMEWORK_TEXT}
@@ -226,43 +247,65 @@ THE PAPERS:
 
 Respond in EXACTLY this format (no other text):
 
-SELECTED: <comma-separated paper numbers, e.g. 3,7,11>
-RATIONALE: <2-3 sentences explaining why these papers were chosen over the others>
+STRAIN: <comma-separated paper numbers for the 2 strain papers, e.g. 3,7>
+VALIDATION: <single paper number for the validation paper, e.g. 11>
+RATIONALE: <2-3 sentences explaining why these papers were chosen>
 """
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=300,
+        max_tokens=400,
         messages=[{"role": "user", "content": selection_prompt}],
     )
 
     text = resp.content[0].text.strip()
 
     # Parse selection
-    selected_indices = []
+    strain_indices = []
+    validation_indices = []
     rationale = ""
 
     for line in text.split("\n"):
-        if line.startswith("SELECTED:"):
-            nums = re.findall(r"\d+", line)
-            selected_indices = [int(n) - 1 for n in nums]
-        elif line.startswith("RATIONALE:"):
-            rationale = line.split("RATIONALE:", 1)[1].strip()
+        if line.startswith("STRAIN:"):
+            nums = re.findall(r"\d+", line.split("STRAIN:", 1)[1])
+            strain_indices = [int(n) - 1 for n in nums]
+        elif line.startswith("VALIDATION:"):
+            nums = re.findall(r"\d+", line.split("VALIDATION:", 1)[1])
+            validation_indices = [int(n) - 1 for n in nums]
 
     # Grab multi-line rationale
     if "RATIONALE:" in text:
         rationale = text.split("RATIONALE:", 1)[1].strip()
 
     selected = []
-    for idx in selected_indices:
+    for idx in strain_indices[:STRAIN_PAPERS]:
         if 0 <= idx < len(papers):
-            selected.append(papers[idx])
+            paper = papers[idx].copy()
+            paper["selection_type"] = "strain"
+            selected.append(paper)
 
-    if not selected:
-        selected = papers[:PAPERS_TO_SELECT]
-        rationale = "Selection parsing failed; defaulting to first 3 papers."
+    for idx in validation_indices[:VALIDATION_PAPERS]:
+        if 0 <= idx < len(papers):
+            paper = papers[idx].copy()
+            paper["selection_type"] = "validation"
+            selected.append(paper)
 
-    print(f"Selected {len(selected)} papers for interpretive cycle.")
+    # Fallback if parsing failed
+    if len(selected) < PAPERS_TO_SELECT:
+        existing_ids = {p["arxiv_id"] for p in selected}
+        for p in papers:
+            if p["arxiv_id"] not in existing_ids:
+                paper = p.copy()
+                paper["selection_type"] = "strain" if len(selected) < STRAIN_PAPERS else "validation"
+                selected.append(paper)
+                if len(selected) >= PAPERS_TO_SELECT:
+                    break
+        if not rationale:
+            rationale = "Selection parsing incomplete; filled remaining slots from paper list."
+
+    strain_count = sum(1 for p in selected if p["selection_type"] == "strain")
+    val_count = sum(1 for p in selected if p["selection_type"] == "validation")
+    print(f"Selected {len(selected)} papers ({strain_count} strain, {val_count} validation).")
     return selected[:PAPERS_TO_SELECT], rationale
 
 
@@ -293,8 +336,9 @@ def run_interpretive_cycle(selected_papers, current_model, current_tensions, cli
         authors_str = ", ".join(p["authors"][:5])
         if len(p["authors"]) > 5:
             authors_str += " et al."
+        sel_type = p.get("selection_type", "strain")
         papers_block += (
-            f"\n--- Paper {i} ---\n"
+            f"\n--- Paper {i} (selected for {sel_type}) ---\n"
             f"Title: {p['title']}\n"
             f"ArXiv ID: {p['arxiv_id']}\n"
             f"Authors: {authors_str}\n"
@@ -305,7 +349,9 @@ def run_interpretive_cycle(selected_papers, current_model, current_tensions, cli
     user_prompt = f"""\
 You are running an interpretive cycle for the Worldlines system. Below you \
 have the full framework, the system's current model of reality, the current \
-open tensions, and 3 new physics papers to interpret.
+open tensions, and 3 new physics papers to interpret. Two were selected \
+because they are likely to strain the framework; one was selected because \
+it may represent genuine predictive validation.
 
 {'=' * 55}
 THE WORLDLINES FRAMEWORK
@@ -339,9 +385,11 @@ Produce a structured response with EXACTLY these sections. Do not skip any. \
 Do not add others. Use the exact section headers shown.
 
 ### PAPERS PROCESSED
-[For each paper: title, arxiv ID, one paragraph interpreting it through the \
-Worldlines lens. Be specific about what the framework says about the paper's \
-findings and where the interpretation strains.]
+[For each paper: title, arxiv ID, selection type (strain or validation), one \
+paragraph interpreting it through the Worldlines lens. Be specific about what \
+the framework says about the paper's findings and where the interpretation \
+strains. For the validation paper, be specific about whether the framework \
+actually had predictive purchase or merely post-hoc consistency.]
 
 ### FRAMEWORK STRAINS
 [The most important place this cycle where the framework produced an \
@@ -378,6 +426,157 @@ next cycle more productive?]
     )
 
     return resp.content[0].text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Step 4b: Score papers on strain and validation dimensions
+# ---------------------------------------------------------------------------
+
+
+def score_papers(selected_papers, analysis, client):
+    """Score each paper on strain (0-10) and validation (0-10) using Haiku.
+
+    Returns a list of score dicts, or an empty list if scoring fails.
+    """
+    papers_json = json.dumps(
+        [
+            {
+                "arxiv_id": p["arxiv_id"],
+                "title": p["title"],
+                "abstract": p["abstract"][:600],
+                "selection_type": p.get("selection_type", "strain"),
+            }
+            for p in selected_papers
+        ],
+        indent=2,
+    )
+
+    scoring_prompt = (
+        "You are scoring papers against the Worldlines computational framework "
+        "on two dimensions. Return only valid JSON, no other text.\n\n"
+        "For each paper, score:\n\n"
+        "1. STRAIN (0-10): How much does this paper strain or resist interpretation "
+        "through the Worldlines framework?\n"
+        "   0 = framework handles it trivially, nothing interesting happens\n"
+        "   5 = framework produces a strained or surprising description, real tension exists\n"
+        "   10 = framework cannot coherently account for this finding\n\n"
+        "2. VALIDATION (0-10): How specifically does this paper validate the framework "
+        "— not just consistency, but predictive purchase?\n"
+        "   0 = merely consistent, the framework can be made to fit post-hoc but predicted nothing\n"
+        "   5 = the framework's lens emphasizes something this paper confirms that mainstream "
+        "approaches underemphasized\n"
+        "   10 = the framework clearly predicted this finding in a way conventional physics did not\n\n"
+        "IMPORTANT: For validation scores above 3, you must be able to articulate what "
+        "specifically the framework predicted in advance. If you cannot, the score must "
+        'be 3 or below. "Consistent with" is not validation. Predictive specificity is '
+        "validation.\n\n"
+        f"Papers to score:\n{papers_json}\n\n"
+        f"Main interpretive analysis for context:\n{analysis}\n\n"
+        "Return this exact JSON structure:\n"
+        "{\n"
+        '  "scores": [\n'
+        "    {\n"
+        '      "arxiv_id": "...",\n'
+        '      "title": "...",\n'
+        '      "strain": 0,\n'
+        '      "validation": 0,\n'
+        '      "strain_rationale": "one sentence",\n'
+        '      "validation_rationale": "one sentence — if validation > 3, state specifically '
+        'what the framework predicted"\n'
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+
+    try:
+        resp = client.messages.create(
+            model=SCORING_MODEL,
+            max_tokens=1024,
+            messages=[{"role": "user", "content": scoring_prompt}],
+        )
+        raw = resp.content[0].text.strip()
+    except Exception as exc:
+        print(f"WARNING: Scoring API call failed: {exc}", file=sys.stderr)
+        return []
+
+    # Parse JSON — handle markdown code fences if present
+    json_str = raw
+    if "```" in json_str:
+        match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", json_str, re.DOTALL)
+        if match:
+            json_str = match.group(1).strip()
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        # Try to find a JSON object in the response
+        brace_start = json_str.find("{")
+        brace_end = json_str.rfind("}")
+        if brace_start != -1 and brace_end != -1:
+            try:
+                data = json.loads(json_str[brace_start : brace_end + 1])
+            except json.JSONDecodeError:
+                print(
+                    f"WARNING: Could not parse scoring JSON. Raw response:\n{raw[:500]}",
+                    file=sys.stderr,
+                )
+                return []
+        else:
+            print(
+                f"WARNING: No JSON object found in scoring response. Raw:\n{raw[:500]}",
+                file=sys.stderr,
+            )
+            return []
+
+    if not isinstance(data, dict) or "scores" not in data:
+        print("WARNING: Scoring response missing 'scores' key.", file=sys.stderr)
+        return []
+
+    scores = data["scores"]
+    if not isinstance(scores, list):
+        print("WARNING: 'scores' is not a list.", file=sys.stderr)
+        return []
+
+    # Build a lookup for selection_type from the selected papers
+    selection_types = {p["arxiv_id"]: p.get("selection_type", "strain") for p in selected_papers}
+
+    validated = []
+    for s in scores:
+        if not isinstance(s, dict):
+            continue
+        arxiv_id = s.get("arxiv_id", "")
+        try:
+            strain_val = int(s.get("strain", 0))
+            validation_val = int(s.get("validation", 0))
+        except (ValueError, TypeError):
+            strain_val = 0
+            validation_val = 0
+        strain_val = max(0, min(10, strain_val))
+        validation_val = max(0, min(10, validation_val))
+
+        validated.append({
+            "date": TODAY,
+            "arxiv_id": arxiv_id,
+            "title": s.get("title", ""),
+            "strain": strain_val,
+            "validation": validation_val,
+            "strain_rationale": str(s.get("strain_rationale", ""))[:500],
+            "validation_rationale": str(s.get("validation_rationale", ""))[:500],
+            "selection_type": selection_types.get(arxiv_id, "strain"),
+        })
+
+    return validated
+
+
+def write_scores(scores):
+    """Append score records to scoring/scores.jsonl. Creates file/dir if needed."""
+    os.makedirs(SCORES_DIR, exist_ok=True)
+
+    with open(SCORES_PATH, "a", encoding="utf-8") as f:
+        for record in scores:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"Wrote {len(scores)} score(s) to {SCORES_PATH}.")
 
 
 # ---------------------------------------------------------------------------
@@ -490,7 +689,7 @@ def apply_updates(claude_response, current_model, current_tensions):
 # ---------------------------------------------------------------------------
 
 
-def write_cycle_file(claude_response, total_fetched, selected_papers, selection_rationale):
+def write_cycle_file(claude_response, total_fetched, selected_papers, selection_rationale, scores):
     """Write the full cycle output to cycles/YYYY-MM-DD.md. Returns filename."""
 
     filename = f"{CYCLES_DIR}/{TODAY}.md"
@@ -503,8 +702,24 @@ def write_cycle_file(claude_response, total_fetched, selected_papers, selection_
         filename = f"{CYCLES_DIR}/{TODAY}-{counter}.md"
 
     paper_titles = "\n".join(
-        f"- {p['title']} (`{p['arxiv_id']}`)" for p in selected_papers
+        f"- [{p.get('selection_type', 'strain').upper()}] {p['title']} (`{p['arxiv_id']}`)"
+        for p in selected_papers
     )
+
+    scores_block = ""
+    if scores:
+        scores_block = (
+            "\n**Scores:**\n\n"
+            "| Paper | Strain | Validation | Selection |\n"
+            "|-------|--------|------------|----------|\n"
+        )
+        for s in scores:
+            title_trunc = s['title'][:50] + ('...' if len(s['title']) > 50 else '')
+            scores_block += (
+                f"| {title_trunc} | {s['strain']}/10 "
+                f"| {s['validation']}/10 | {s['selection_type']} |\n"
+            )
+        scores_block += "\n"
 
     content = (
         f"# Cycle: {TODAY}\n\n"
@@ -512,6 +727,7 @@ def write_cycle_file(claude_response, total_fetched, selected_papers, selection_
         f"**Papers selected:** {len(selected_papers)}\n"
         f"**Selected papers:**\n{paper_titles}\n\n"
         f"**Selection rationale:** {selection_rationale}\n\n"
+        f"{scores_block}"
         f"---\n\n"
         f"{claude_response}\n"
     )
@@ -546,7 +762,7 @@ def main():
         print("ERROR: No papers fetched. Exiting.", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Select papers
+    # Step 2: Select papers (2 strain + 1 validation)
     print("\nStep 2: Selecting papers for interpretive cycle...")
     selected, rationale = select_papers(papers, client)
 
@@ -564,6 +780,14 @@ def main():
     )
     print(f"  Response: {len(claude_response)} chars")
 
+    # Step 4b: Score papers
+    print("\nStep 4b: Scoring papers on strain and validation dimensions...")
+    scores = score_papers(selected, claude_response, client)
+    if scores:
+        write_scores(scores)
+    else:
+        print("WARNING: Scoring produced no results. Cycle continues without scores.")
+
     # Step 5: Apply updates
     print("\nStep 5: Applying updates...")
     tensions_added, tensions_resolved, state_updated = apply_updates(
@@ -572,9 +796,17 @@ def main():
 
     # Step 6: Write cycle file
     print("\nStep 6: Writing cycle file...")
-    cycle_file = write_cycle_file(claude_response, len(papers), selected, rationale)
+    cycle_file = write_cycle_file(
+        claude_response, len(papers), selected, rationale, scores
+    )
 
     # Step 7: Summary
+    avg_strain = ""
+    avg_val = ""
+    if scores:
+        avg_strain = f"{sum(s['strain'] for s in scores) / len(scores):.1f}"
+        avg_val = f"{sum(s['validation'] for s in scores) / len(scores):.1f}"
+
     print(
         f"\n=== Cycle Complete ===\n"
         f"Date:               {TODAY}\n"
@@ -583,6 +815,9 @@ def main():
         f"New tensions:       {tensions_added}\n"
         f"Tensions resolved:  {tensions_resolved}\n"
         f"State updated:      {'Yes' if state_updated else 'No'}\n"
+        f"Scores recorded:    {len(scores)}\n"
+        f"Avg strain:         {avg_strain or 'N/A'}\n"
+        f"Avg validation:     {avg_val or 'N/A'}\n"
         f"Cycle file:         {cycle_file}\n"
     )
 

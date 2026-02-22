@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worldlines — Strain vs Validation</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  padding: 24px;
+  line-height: 1.5;
+}
+h1 { font-size: 18px; color: #e6edf3; margin-bottom: 4px; }
+.subtitle { color: #8b949e; margin-bottom: 24px; font-size: 12px; }
+.not-enough {
+  text-align: center; padding: 80px 20px; color: #8b949e; font-size: 15px;
+}
+.not-enough span { color: #58a6ff; }
+
+/* Scatter */
+.scatter-container { position: relative; margin-bottom: 32px; }
+.quadrant-label {
+  position: absolute; font-size: 11px; color: #30363d; pointer-events: none;
+  font-style: italic;
+}
+
+/* Axes */
+.axis text { fill: #8b949e; font-size: 11px; font-family: 'Courier New', monospace; }
+.axis line, .axis path { stroke: #21262d; }
+.axis-label { fill: #8b949e; font-size: 12px; font-family: 'Courier New', monospace; }
+.quadrant-line { stroke: #21262d; stroke-dasharray: 4,4; stroke-width: 1; }
+.quadrant-text { fill: #21262d; font-size: 11px; font-family: 'Courier New', monospace; font-style: italic; }
+
+/* Tooltip */
+.tooltip {
+  position: absolute; background: #161b22; border: 1px solid #30363d;
+  border-radius: 6px; padding: 10px 12px; pointer-events: none;
+  font-size: 12px; max-width: 380px; line-height: 1.6; z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.tooltip .tt-title { color: #e6edf3; font-weight: bold; margin-bottom: 4px; }
+.tooltip .tt-meta { color: #8b949e; }
+.tooltip .tt-scores { margin: 6px 0; }
+.tooltip .tt-scores span { display: inline-block; margin-right: 12px; }
+.tooltip .tt-strain { color: #f85149; }
+.tooltip .tt-validation { color: #3fb950; }
+.tooltip .tt-rationale { color: #8b949e; font-size: 11px; border-top: 1px solid #21262d; padding-top: 6px; margin-top: 6px; }
+
+/* Time series */
+.ts-container { display: flex; gap: 24px; margin-bottom: 32px; flex-wrap: wrap; }
+.ts-chart { flex: 1; min-width: 300px; }
+.ts-chart h3 { font-size: 13px; color: #8b949e; margin-bottom: 8px; }
+.ts-line-strain { fill: none; stroke: #f85149; stroke-width: 1.5; }
+.ts-line-validation { fill: none; stroke: #3fb950; stroke-width: 1.5; }
+.ts-dot-strain { fill: #f85149; }
+.ts-dot-validation { fill: #3fb950; }
+
+/* Stats */
+.stats-panel {
+  background: #161b22; border: 1px solid #21262d; border-radius: 6px;
+  padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 24px;
+}
+.stat-item { }
+.stat-label { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-value { color: #e6edf3; font-size: 15px; font-weight: bold; }
+.stat-value.strain { color: #f85149; }
+.stat-value.validation { color: #3fb950; }
+.stat-detail { color: #8b949e; font-size: 11px; margin-top: 2px; }
+
+/* Legend */
+.legend { margin-bottom: 16px; display: flex; gap: 20px; font-size: 12px; }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.legend-dot.strain { background: #f85149; }
+.legend-dot.validation { background: #3fb950; }
+</style>
+</head>
+<body>
+
+<h1>Worldlines — Strain vs Validation</h1>
+<div class="subtitle">Each point is one paper scored against the computational framework</div>
+
+<div id="app"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(async function() {
+  const app = document.getElementById('app');
+
+  // --- Load data ---
+  let raw;
+  try {
+    const resp = await fetch('./scores.jsonl');
+    if (!resp.ok) throw new Error(resp.status);
+    raw = await resp.text();
+  } catch(e) {
+    app.innerHTML = '<div class="not-enough">Could not load <span>scores.jsonl</span>. Run a cycle first to generate scoring data.</div>';
+    return;
+  }
+
+  const data = raw.trim().split('\n').filter(l => l.trim()).map(line => {
+    try { return JSON.parse(line); } catch(e) { return null; }
+  }).filter(Boolean);
+
+  if (data.length < 3) {
+    app.innerHTML = `<div class="not-enough">Not enough data yet — <span>${data.length}</span> paper(s) scored. Need at least 3 to render the chart. Run more cycles.</div>`;
+    return;
+  }
+
+  // --- Constants ---
+  const STRAIN_COLOR = '#f85149';
+  const VALIDATION_COLOR = '#3fb950';
+  const BG = '#0d1117';
+  const GRID = '#21262d';
+
+  // --- Legend ---
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  legend.innerHTML = `
+    <div class="legend-item"><div class="legend-dot strain"></div>Selected for strain</div>
+    <div class="legend-item"><div class="legend-dot validation"></div>Selected for validation</div>
+  `;
+  app.appendChild(legend);
+
+  // ========== SCATTER PLOT ==========
+  const scatterDiv = document.createElement('div');
+  scatterDiv.className = 'scatter-container';
+  app.appendChild(scatterDiv);
+
+  const margin = { top: 20, right: 30, bottom: 50, left: 55 };
+  const width = Math.min(720, window.innerWidth - 80);
+  const height = Math.min(520, width * 0.72);
+  const innerW = width - margin.left - margin.right;
+  const innerH = height - margin.top - margin.bottom;
+
+  const svg = d3.select(scatterDiv).append('svg')
+    .attr('width', width).attr('height', height);
+
+  const g = svg.append('g')
+    .attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleLinear().domain([0, 10]).range([0, innerW]);
+  const y = d3.scaleLinear().domain([0, 10]).range([innerH, 0]);
+
+  // Axes
+  g.append('g').attr('class', 'axis')
+    .attr('transform', `translate(0,${innerH})`)
+    .call(d3.axisBottom(x).ticks(10).tickSize(-innerH).tickFormat(d3.format('d')))
+    .call(g => g.selectAll('.tick line').attr('stroke', GRID).attr('stroke-opacity', 0.4))
+    .call(g => g.select('.domain').attr('stroke', GRID));
+
+  g.append('g').attr('class', 'axis')
+    .call(d3.axisLeft(y).ticks(10).tickSize(-innerW).tickFormat(d3.format('d')))
+    .call(g => g.selectAll('.tick line').attr('stroke', GRID).attr('stroke-opacity', 0.4))
+    .call(g => g.select('.domain').attr('stroke', GRID));
+
+  // Axis labels
+  svg.append('text').attr('class', 'axis-label')
+    .attr('x', margin.left + innerW / 2).attr('y', height - 6)
+    .attr('text-anchor', 'middle').text('Strain (0-10)');
+
+  svg.append('text').attr('class', 'axis-label')
+    .attr('transform', 'rotate(-90)')
+    .attr('x', -(margin.top + innerH / 2)).attr('y', 14)
+    .attr('text-anchor', 'middle').text('Validation (0-10)');
+
+  // Quadrant lines at 5,5
+  g.append('line').attr('class', 'quadrant-line')
+    .attr('x1', x(5)).attr('x2', x(5)).attr('y1', 0).attr('y2', innerH);
+  g.append('line').attr('class', 'quadrant-line')
+    .attr('x1', 0).attr('x2', innerW).attr('y1', y(5)).attr('y2', y(5));
+
+  // Quadrant labels
+  const qlabelPad = 8;
+  g.append('text').attr('class', 'quadrant-text')
+    .attr('x', x(7.5)).attr('y', y(7.5)).attr('text-anchor', 'middle').text('Productive friction');
+  g.append('text').attr('class', 'quadrant-text')
+    .attr('x', x(2.5)).attr('y', y(7.5)).attr('text-anchor', 'middle').text('Genuine confirmation');
+  g.append('text').attr('class', 'quadrant-text')
+    .attr('x', x(7.5)).attr('y', y(2.5)).attr('text-anchor', 'middle').text('Hard resistance');
+  g.append('text').attr('class', 'quadrant-text')
+    .attr('x', x(2.5)).attr('y', y(2.5)).attr('text-anchor', 'middle').text('Neutral territory');
+
+  // Tooltip
+  const tooltip = document.createElement('div');
+  tooltip.className = 'tooltip';
+  tooltip.style.display = 'none';
+  scatterDiv.appendChild(tooltip);
+
+  // Recency scale for point size
+  const dates = data.map(d => new Date(d.date));
+  const dateExtent = d3.extent(dates);
+  const rScale = d3.scaleLinear()
+    .domain([dateExtent[0] || new Date(), dateExtent[1] || new Date()])
+    .range([4, 9]);
+
+  // Points
+  g.selectAll('circle.paper')
+    .data(data)
+    .join('circle')
+      .attr('class', 'paper')
+      .attr('cx', d => x(d.strain))
+      .attr('cy', d => y(d.validation))
+      .attr('r', d => rScale(new Date(d.date)))
+      .attr('fill', d => d.selection_type === 'validation' ? VALIDATION_COLOR : STRAIN_COLOR)
+      .attr('fill-opacity', 0.75)
+      .attr('stroke', d => d.selection_type === 'validation' ? VALIDATION_COLOR : STRAIN_COLOR)
+      .attr('stroke-opacity', 0.9)
+      .attr('stroke-width', 1)
+      .style('cursor', 'pointer')
+      .on('mouseenter', function(event, d) {
+        d3.select(this).attr('fill-opacity', 1).attr('stroke-width', 2);
+        tooltip.style.display = 'block';
+        tooltip.innerHTML = `
+          <div class="tt-title">${esc(d.title)}</div>
+          <div class="tt-meta">${esc(d.arxiv_id)} &middot; ${esc(d.date)} &middot; ${esc(d.selection_type)}</div>
+          <div class="tt-scores">
+            <span class="tt-strain">Strain: ${d.strain}/10</span>
+            <span class="tt-validation">Validation: ${d.validation}/10</span>
+          </div>
+          <div class="tt-rationale">
+            <strong>Strain:</strong> ${esc(d.strain_rationale || '—')}<br>
+            <strong>Validation:</strong> ${esc(d.validation_rationale || '—')}
+          </div>
+        `;
+      })
+      .on('mousemove', function(event) {
+        const rect = scatterDiv.getBoundingClientRect();
+        let left = event.clientX - rect.left + 14;
+        let top = event.clientY - rect.top - 10;
+        if (left + 390 > rect.width) left = event.clientX - rect.left - 394;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+      })
+      .on('mouseleave', function() {
+        d3.select(this).attr('fill-opacity', 0.75).attr('stroke-width', 1);
+        tooltip.style.display = 'none';
+      });
+
+  // ========== TIME SERIES ==========
+  const tsContainer = document.createElement('div');
+  tsContainer.className = 'ts-container';
+  app.appendChild(tsContainer);
+
+  // Group by date
+  const byDate = d3.rollups(data, v => ({
+    avgStrain: d3.mean(v, d => d.strain),
+    avgValidation: d3.mean(v, d => d.validation),
+  }), d => d.date).map(([date, vals]) => ({ date: new Date(date), ...vals }))
+    .sort((a, b) => a.date - b.date);
+
+  const tsW = Math.min(340, (width - 24) / 2);
+  const tsH = 160;
+  const tsM = { top: 10, right: 16, bottom: 30, left: 40 };
+  const tsInnerW = tsW - tsM.left - tsM.right;
+  const tsInnerH = tsH - tsM.top - tsM.bottom;
+
+  function makeTimeSeries(container, label, accessor, lineClass, dotClass, color) {
+    const div = document.createElement('div');
+    div.className = 'ts-chart';
+    div.innerHTML = `<h3>${label}</h3>`;
+    container.appendChild(div);
+
+    const tsSvg = d3.select(div).append('svg').attr('width', tsW).attr('height', tsH);
+    const tsG = tsSvg.append('g').attr('transform', `translate(${tsM.left},${tsM.top})`);
+
+    const tx = d3.scaleTime()
+      .domain(d3.extent(byDate, d => d.date))
+      .range([0, tsInnerW]);
+
+    const ty = d3.scaleLinear().domain([0, 10]).range([tsInnerH, 0]);
+
+    tsG.append('g').attr('class', 'axis')
+      .attr('transform', `translate(0,${tsInnerH})`)
+      .call(d3.axisBottom(tx).ticks(Math.min(byDate.length, 6)).tickFormat(d3.timeFormat('%m/%d')))
+      .call(g => g.select('.domain').attr('stroke', GRID));
+
+    tsG.append('g').attr('class', 'axis')
+      .call(d3.axisLeft(ty).ticks(5).tickFormat(d3.format('d')))
+      .call(g => g.select('.domain').attr('stroke', GRID));
+
+    const line = d3.line().x(d => tx(d.date)).y(d => ty(accessor(d)));
+
+    tsG.append('path').datum(byDate).attr('class', lineClass).attr('d', line);
+
+    tsG.selectAll('circle')
+      .data(byDate).join('circle')
+      .attr('class', dotClass)
+      .attr('cx', d => tx(d.date)).attr('cy', d => ty(accessor(d)))
+      .attr('r', 3);
+  }
+
+  makeTimeSeries(tsContainer, 'Average Strain per Cycle', d => d.avgStrain, 'ts-line-strain', 'ts-dot-strain', STRAIN_COLOR);
+  makeTimeSeries(tsContainer, 'Average Validation per Cycle', d => d.avgValidation, 'ts-line-validation', 'ts-dot-validation', VALIDATION_COLOR);
+
+  // ========== STATS ==========
+  const statsDiv = document.createElement('div');
+  statsDiv.className = 'stats-panel';
+  app.appendChild(statsDiv);
+
+  const avgStrain = d3.mean(data, d => d.strain);
+  const avgValidation = d3.mean(data, d => d.validation);
+
+  const qTR = data.filter(d => d.strain >= 5 && d.validation >= 5).length;
+  const qTL = data.filter(d => d.strain < 5 && d.validation >= 5).length;
+  const qBR = data.filter(d => d.strain >= 5 && d.validation < 5).length;
+  const qBL = data.filter(d => d.strain < 5 && d.validation < 5).length;
+
+  const mostStrained = data.reduce((a, b) => b.strain > a.strain ? b : a, data[0]);
+
+  const validAbove3 = data.filter(d => d.validation > 3);
+  const bestValidation = validAbove3.length > 0
+    ? validAbove3.reduce((a, b) => b.validation > a.validation ? b : a, validAbove3[0])
+    : null;
+
+  statsDiv.innerHTML = `
+    <div class="stat-item">
+      <div class="stat-label">Total papers scored</div>
+      <div class="stat-value">${data.length}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Average strain</div>
+      <div class="stat-value strain">${avgStrain.toFixed(1)}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Average validation</div>
+      <div class="stat-value validation">${avgValidation.toFixed(1)}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Quadrant counts</div>
+      <div class="stat-value">${qTR} / ${qTL} / ${qBR} / ${qBL}</div>
+      <div class="stat-detail">Friction / Confirm / Resist / Neutral</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Most strained paper</div>
+      <div class="stat-value strain">${mostStrained.strain}/10</div>
+      <div class="stat-detail">${esc(mostStrained.title.substring(0, 70))}${mostStrained.title.length > 70 ? '...' : ''}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Best validation (>3)</div>
+      <div class="stat-value validation">${bestValidation ? bestValidation.validation + '/10' : 'none yet'}</div>
+      <div class="stat-detail">${bestValidation ? esc(bestValidation.title.substring(0, 70)) + (bestValidation.title.length > 70 ? '...' : '') : 'No paper has cleared the validation > 3 threshold'}</div>
+    </div>
+  `;
+
+  function esc(s) {
+    if (!s) return '';
+    const el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
+  }
+})();
+</script>
+</body>
+</html>

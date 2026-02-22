@@ -7,7 +7,7 @@ An autonomous research system that interprets new physics findings through a com
 Worldlines is a self-running system. Every day, it:
 
 1. Fetches recent physics papers from ArXiv (high-energy theory, general relativity, quantum physics, statistical mechanics)
-2. Selects the papers most likely to *strain* its interpretive framework — not confirm it
+2. Selects papers — 2 most likely to *strain* the framework, 1 most likely to offer genuine *validation*
 3. Interprets those papers through the Worldlines computational framework, which holds that reality is literally computation built from five primitives: discrete ticks, gradient fields, attractors, resolution events, and conservation of computation
 4. Updates its living model of reality based on what it finds
 5. Tracks unresolved tensions — places where the framework fails, strains, or produces surprising descriptions
@@ -31,11 +31,13 @@ The system runs daily at 06:00 UTC via GitHub Actions. It can also be triggered 
 ## Architecture
 
 ```
-agent/run.py          — The main agent script (fetch, select, interpret, update)
-state/model.md        — Living document: the system's current model
-tensions/open.md      — Unresolved tensions the system is tracking
-cycles/YYYY-MM-DD.md  — Per-cycle output files
-.github/workflows/    — GitHub Actions scheduling
+agent/run.py            — The main agent script (fetch, select, interpret, score, update)
+state/model.md          — Living document: the system's current model
+tensions/open.md        — Unresolved tensions the system is tracking
+cycles/YYYY-MM-DD.md    — Per-cycle output files
+scoring/scores.jsonl    — Accumulated strain/validation scores (one JSON object per paper)
+scoring/visualize.html  — Interactive D3.js visualization of the score distribution
+.github/workflows/      — GitHub Actions scheduling
 ```
 
 ## Setup
@@ -43,6 +45,30 @@ cycles/YYYY-MM-DD.md  — Per-cycle output files
 1. Fork or clone this repository
 2. Add your `ANTHROPIC_API_KEY` as a repository secret (Settings > Secrets and variables > Actions)
 3. The workflow runs daily, or trigger it manually from the Actions tab
+
+## Scoring
+
+After each interpretive cycle, every paper is scored on two dimensions (0-10 each):
+
+- **Strain** — How much the paper resists interpretation through the Worldlines framework. 0 = trivially handled. 5 = real tension exists. 10 = the framework cannot coherently account for the finding.
+- **Validation** — How specifically the paper validates the framework — not just consistency, but predictive purchase. 0 = merely consistent (post-hoc fit). 5 = the framework's lens emphasizes something this paper confirms. 10 = the framework clearly predicted this in a way conventional physics did not.
+
+**Validation threshold rule:** Scores above 3 require articulable predictive specificity. If the scorer cannot state what the framework predicted in advance, the validation score must be 3 or below. "Consistent with" is not validation.
+
+Scores accumulate in `scoring/scores.jsonl` — one JSON line per paper per cycle. The visualization at `scoring/visualize.html` renders the distribution as a scatter plot with quadrant analysis.
+
+## Visualization
+
+The file `scoring/visualize.html` is a self-contained D3.js page that loads `scores.jsonl` and renders:
+
+- **Scatter plot**: strain (x) vs validation (y), with quadrant lines at 5/5 and labels (Productive friction, Genuine confirmation, Hard resistance, Neutral territory)
+- **Time series**: average strain and validation per cycle date, showing distribution drift
+- **Stats panel**: totals, averages, quadrant counts, most strained paper, best validation
+
+To view it:
+
+1. **Locally**: Clone the repo and open `scoring/visualize.html` in a browser. It fetches `scores.jsonl` via relative path, so it works from the filesystem or any local server.
+2. **GitHub Pages**: Go to Settings > Pages > deploy from main branch. The visualization will be available at `https://<username>.github.io/<repo>/scoring/visualize.html`.
 
 ## License
 
