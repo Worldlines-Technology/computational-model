@@ -35,6 +35,7 @@ jobs:
       #   state/model.md          — updated living model
       #   tensions/open.md        — updated tensions
       #   scoring/scores.jsonl    — appended paper scores
+      #   scoring/distribution.png — regenerated scatter plot
       #   scoring/visualize.html  — static visualization (committed once, rarely changes)
       - name: Commit outputs
         run: |

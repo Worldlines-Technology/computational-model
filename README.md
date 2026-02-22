@@ -36,6 +36,7 @@ state/model.md          — Living document: the system's current model
 tensions/open.md        — Unresolved tensions the system is tracking
 cycles/YYYY-MM-DD.md    — Per-cycle output files
 scoring/scores.jsonl    — Accumulated strain/validation scores (one JSON object per paper)
+scoring/distribution.png — Auto-generated scatter plot (regenerated every cycle)
 scoring/visualize.html  — Interactive D3.js visualization of the score distribution
 .github/workflows/      — GitHub Actions scheduling
 ```
@@ -58,6 +59,8 @@ After each interpretive cycle, every paper is scored on two dimensions (0-10 eac
 Scores accumulate in `scoring/scores.jsonl` — one JSON line per paper per cycle. The visualization at `scoring/visualize.html` renders the distribution as a scatter plot with quadrant analysis.
 
 ## Visualization
+
+![Worldlines Distribution](scoring/distribution.png)
 
 The file `scoring/visualize.html` is a self-contained D3.js page that loads `scores.jsonl` and renders:
 

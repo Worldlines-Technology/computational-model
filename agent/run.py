@@ -18,7 +18,11 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import anthropic
+import matplotlib
+import matplotlib.pyplot as plt
 import requests
+
+matplotlib.use("Agg")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -36,6 +40,7 @@ TENSIONS_PATH = "tensions/open.md"
 CYCLES_DIR = "cycles"
 SCORES_DIR = "scoring"
 SCORES_PATH = "scoring/scores.jsonl"
+DISTRIBUTION_PNG = "scoring/distribution.png"
 
 CLAUDE_MODEL = "claude-opus-4-6"
 SCORING_MODEL = "claude-haiku-4-5-20251001"
@@ -580,6 +585,165 @@ def write_scores(scores):
 
 
 # ---------------------------------------------------------------------------
+# Step 4c: Generate static scatter plot from all accumulated scores
+# ---------------------------------------------------------------------------
+
+PLOT_BG = "#0d1117"
+PLOT_FACE = "#161b22"
+PLOT_GRID = "#21262d"
+PLOT_TEXT = "#c9d1d9"
+PLOT_TEXT_DIM = "#8b949e"
+PLOT_STRAIN_COLOR = "#f85149"
+PLOT_VALIDATION_COLOR = "#3fb950"
+
+
+def generate_distribution_plot():
+    """Read scoring/scores.jsonl and generate scoring/distribution.png.
+
+    Produces a scatter plot of strain vs validation for every scored paper.
+    Annotates the 2-3 highest-strain and highest-validation points.
+    Gracefully skips if fewer than 1 data point exists.
+    """
+    if not os.path.exists(SCORES_PATH):
+        print("No scores file yet — skipping plot generation.")
+        return
+
+    records = []
+    with open(SCORES_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    if not records:
+        print("Scores file is empty — skipping plot generation.")
+        return
+
+    strains = [r.get("strain", 0) for r in records]
+    validations = [r.get("validation", 0) for r in records]
+    sel_types = [r.get("selection_type", "strain") for r in records]
+    titles = [r.get("title", "") for r in records]
+
+    colors = [
+        PLOT_VALIDATION_COLOR if t == "validation" else PLOT_STRAIN_COLOR
+        for t in sel_types
+    ]
+
+    # --- Build figure ---
+    fig, ax = plt.subplots(figsize=(8, 6))
+    fig.patch.set_facecolor(PLOT_BG)
+    ax.set_facecolor(PLOT_FACE)
+
+    # Scatter points
+    ax.scatter(
+        strains, validations,
+        c=colors, s=60, alpha=0.85, edgecolors="none", zorder=3,
+    )
+
+    # Quadrant lines at 5, 5
+    ax.axhline(y=5, color=PLOT_GRID, linestyle="--", linewidth=0.8, zorder=1)
+    ax.axvline(x=5, color=PLOT_GRID, linestyle="--", linewidth=0.8, zorder=1)
+
+    # Quadrant labels
+    label_kw = dict(fontsize=9, color=PLOT_GRID, ha="center", va="center", style="italic")
+    ax.text(7.5, 7.5, "Productive\nfriction", **label_kw)
+    ax.text(2.5, 7.5, "Genuine\nconfirmation", **label_kw)
+    ax.text(7.5, 2.5, "Hard\nresistance", **label_kw)
+    ax.text(2.5, 2.5, "Neutral\nterritory", **label_kw)
+
+    # Axes
+    ax.set_xlim(-0.3, 10.3)
+    ax.set_ylim(-0.3, 10.3)
+    ax.set_xlabel("Strain (0–10)", color=PLOT_TEXT_DIM, fontsize=11)
+    ax.set_ylabel("Validation (0–10)", color=PLOT_TEXT_DIM, fontsize=11)
+    ax.set_title(
+        f"Worldlines — Strain vs Validation  ({len(records)} papers)",
+        color=PLOT_TEXT, fontsize=13, pad=12,
+    )
+
+    ax.tick_params(colors=PLOT_TEXT_DIM, which="both")
+    for spine in ax.spines.values():
+        spine.set_color(PLOT_GRID)
+    ax.set_xticks(range(0, 11))
+    ax.set_yticks(range(0, 11))
+    ax.grid(True, color=PLOT_GRID, alpha=0.3, linewidth=0.5)
+
+    # Legend
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], marker="o", color="none", markerfacecolor=PLOT_STRAIN_COLOR,
+               markersize=8, label="Strain-selected"),
+        Line2D([0], [0], marker="o", color="none", markerfacecolor=PLOT_VALIDATION_COLOR,
+               markersize=8, label="Validation-selected"),
+    ]
+    leg = ax.legend(
+        handles=legend_handles, loc="upper left",
+        fontsize=9, facecolor=PLOT_FACE, edgecolor=PLOT_GRID,
+        labelcolor=PLOT_TEXT_DIM,
+    )
+    leg.get_frame().set_alpha(0.9)
+
+    # --- Annotate top strain and top validation points ---
+    indexed = list(enumerate(records))
+
+    # Top 2 by strain (deduplicated by arxiv_id)
+    by_strain = sorted(indexed, key=lambda x: x[1].get("strain", 0), reverse=True)
+    annotated_ids = set()
+    annotate_count = 0
+    for idx, rec in by_strain:
+        aid = rec.get("arxiv_id", "")
+        if aid in annotated_ids:
+            continue
+        _annotate_point(ax, strains[idx], validations[idx], titles[idx], PLOT_STRAIN_COLOR)
+        annotated_ids.add(aid)
+        annotate_count += 1
+        if annotate_count >= 2:
+            break
+
+    # Top 1 by validation (skip if already annotated)
+    by_val = sorted(indexed, key=lambda x: x[1].get("validation", 0), reverse=True)
+    val_annotated = 0
+    for idx, rec in by_val:
+        aid = rec.get("arxiv_id", "")
+        if aid in annotated_ids:
+            continue
+        _annotate_point(ax, strains[idx], validations[idx], titles[idx], PLOT_VALIDATION_COLOR)
+        annotated_ids.add(aid)
+        val_annotated += 1
+        if val_annotated >= 1:
+            break
+
+    fig.tight_layout()
+    os.makedirs(SCORES_DIR, exist_ok=True)
+    fig.savefig(DISTRIBUTION_PNG, dpi=150, facecolor=fig.get_facecolor())
+    plt.close(fig)
+
+    print(f"Distribution plot saved to {DISTRIBUTION_PNG} ({len(records)} points).")
+
+
+def _annotate_point(ax, x, y, title, color):
+    """Add a truncated title annotation to a scatter point."""
+    label = title[:45] + ("..." if len(title) > 45 else "")
+    # Offset direction: push label away from center of plot
+    dx = 0.3 if x < 5 else -0.3
+    dy = 0.4 if y < 5 else -0.4
+    ax.annotate(
+        label,
+        xy=(x, y),
+        xytext=(x + dx, y + dy),
+        fontsize=7,
+        color=color,
+        arrowprops=dict(arrowstyle="-", color=color, lw=0.6),
+        bbox=dict(boxstyle="round,pad=0.2", facecolor=PLOT_BG, edgecolor=color, alpha=0.8, lw=0.5),
+        zorder=5,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Step 5: Apply updates
 # ---------------------------------------------------------------------------
 
@@ -787,6 +951,10 @@ def main():
         write_scores(scores)
     else:
         print("WARNING: Scoring produced no results. Cycle continues without scores.")
+
+    # Step 4c: Generate distribution plot (uses all accumulated scores, not just this cycle)
+    print("\nStep 4c: Generating distribution plot...")
+    generate_distribution_plot()
 
     # Step 5: Apply updates
     print("\nStep 5: Applying updates...")
