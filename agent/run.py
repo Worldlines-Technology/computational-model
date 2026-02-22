@@ -35,12 +35,16 @@ PAPERS_TO_SELECT = 3
 STRAIN_PAPERS = 2
 VALIDATION_PAPERS = 1
 
-STATE_PATH = "state/model.md"
-TENSIONS_PATH = "tensions/open.md"
-CYCLES_DIR = "cycles"
-SCORES_DIR = "scoring"
-SCORES_PATH = "scoring/scores.jsonl"
-DISTRIBUTION_PNG = "scoring/distribution.png"
+# All paths are anchored to the repo root (parent of agent/) so the script
+# produces correct output regardless of the working directory it's invoked from.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+STATE_PATH = os.path.join(REPO_ROOT, "state", "model.md")
+TENSIONS_PATH = os.path.join(REPO_ROOT, "tensions", "open.md")
+CYCLES_DIR = os.path.join(REPO_ROOT, "cycles")
+SCORES_DIR = os.path.join(REPO_ROOT, "scoring")
+SCORES_PATH = os.path.join(REPO_ROOT, "scoring", "scores.jsonl")
+DISTRIBUTION_PNG = os.path.join(REPO_ROOT, "scoring", "distribution.png")
 
 CLAUDE_MODEL = "claude-opus-4-6"
 SCORING_MODEL = "claude-haiku-4-5-20251001"
@@ -722,7 +726,16 @@ def generate_distribution_plot():
     fig.savefig(DISTRIBUTION_PNG, dpi=150, facecolor=fig.get_facecolor())
     plt.close(fig)
 
-    print(f"Distribution plot saved to {DISTRIBUTION_PNG} ({len(records)} points).")
+    # Verify the file was actually written
+    if not os.path.exists(DISTRIBUTION_PNG):
+        print(
+            f"ERROR: distribution plot was not created at {DISTRIBUTION_PNG}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    size_kb = os.path.getsize(DISTRIBUTION_PNG) / 1024
+    print(f"Distribution plot saved to {DISTRIBUTION_PNG} ({len(records)} points, {size_kb:.0f} KB).")
 
 
 def _annotate_point(ax, x, y, title, color):
