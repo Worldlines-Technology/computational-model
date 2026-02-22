@@ -653,7 +653,7 @@ def generate_distribution_plot():
     ax.axvline(x=5, color=PLOT_GRID, linestyle="--", linewidth=0.8, zorder=1)
 
     # Quadrant labels
-    label_kw = dict(fontsize=9, color=PLOT_GRID, ha="center", va="center", style="italic")
+    label_kw = dict(fontsize=9, color=PLOT_TEXT_DIM, ha="center", va="center", style="italic")
     ax.text(7.5, 7.5, "Productive\nfriction", **label_kw)
     ax.text(2.5, 7.5, "Genuine\nconfirmation", **label_kw)
     ax.text(7.5, 2.5, "Hard\nresistance", **label_kw)
